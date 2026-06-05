@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>FotoSortierer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --c-bg: #0f0f0f; --c-surface: #1a1a1a; --c-border: #2a2a2a;
+    --c-text: #f0ede8; --c-muted: #666;
+    --c-0: #e8c547; --c-1: #5b9cf6; --c-2: #f07850; --c-3: #72c472;
+    --radius: 16px;
+  }
+  html, body { height: 100%; background: #000; color: var(--c-text); font-family: 'DM Mono', monospace; overflow: hidden; }
+
+  /* VIEWFINDER SCREEN */
+  #screen-cam { display: none; position: fixed; inset: 0; flex-direction: column; background: #000; z-index: 10; }
+  #screen-cam.active { display: flex; }
+  #video { flex: 1; width: 100%; object-fit: cover; min-height: 0; }
+  canvas#snap-canvas { display: none; }
+
+  .cam-header { display: flex; align-items: center; justify-content: space-between; padding: 16px; flex-shrink: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.7), transparent); position: absolute; top: 0; left: 0; right: 0; z-index: 2; }
+  .cam-title { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 700; }
+  .cam-close { background: rgba(255,255,255,0.15); border: none; color: #fff; border-radius: 50%; width: 36px; height: 36px; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+
+  .cam-footer { position: absolute; bottom: 0; left: 0; right: 0; padding: 20px 16px 36px; background: linear-gradient(to top, rgba(0,0,0,0.85), transparent); display: flex; align-items: center; justify-content: center; gap: 24px; z-index: 2; }
+
+  .shutter { width: 72px; height: 72px; border-radius: 50%; border: 4px solid #fff; background: rgba(255,255,255,0.2); cursor: pointer; position: relative; -webkit-tap-highlight-color: transparent; transition: transform 0.1s; flex-shrink: 0; }
+  .shutter:active { transform: scale(0.92); background: rgba(255,255,255,0.5); }
+  .shutter::after { content: ''; position: absolute; inset: 6px; border-radius: 50%; background: #fff; }
+
+  .cnt-badge { background: rgba(255,255,255,0.15); border-radius: 20px; padding: 6px 14px; font-size: 12px; color: #fff; min-width: 60px; text-align: center; }
+  .cnt-badge span { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 18px; display: block; line-height: 1; }
+
+  .flash-overlay { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; z-index: 3; transition: opacity 0.08s; }
+  .flash-overlay.flash { opacity: 0.7; }
+
+  /* MAIN SCREEN */
+  #screen-main { display: flex; flex-direction: column; height: 100dvh; padding: 20px 16px 12px; gap: 12px; background: var(--c-bg); }
+
+  header { display: flex; align-items: center; justify-content: space-between; padding: 0 4px; flex-shrink: 0; }
+  .logo { font-family: 'Syne', sans-serif; font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+  .logo span { color: var(--c-0); }
+  .edit-btn { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--c-muted); background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 8px; padding: 5px 10px; cursor: pointer; letter-spacing: 0.05em; -webkit-tap-highlight-color: transparent; }
+
+  .last-preview { flex: 1; background: var(--c-surface); border-radius: var(--radius); border: 1px solid var(--c-border); overflow: hidden; position: relative; min-height: 0; }
+  .last-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; opacity: 0.3; }
+  .last-placeholder svg { width: 48px; height: 48px; stroke: var(--c-text); stroke-width: 1.5; fill: none; }
+  .last-placeholder p { font-size: 12px; color: var(--c-muted); letter-spacing: 0.05em; }
+  #last-img { width: 100%; height: 100%; object-fit: cover; display: none; }
+  .last-badge { position: absolute; top: 12px; left: 12px; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; display: none; }
+  .saved-toast { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%) translateY(40px); background: rgba(15,15,15,0.9); border: 1px solid var(--c-border); padding: 8px 16px; border-radius: 20px; font-size: 11px; letter-spacing: 0.05em; white-space: nowrap; transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), opacity 0.3s; opacity: 0; }
+  .saved-toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex-shrink: 0; }
+  .cat-btn { position: relative; border: none; border-radius: var(--radius); padding: 0; cursor: pointer; height: 80px; background: var(--c-surface); transition: transform 0.15s; -webkit-tap-highlight-color: transparent; overflow: hidden; }
+  .cat-btn:active { transform: scale(0.96); }
+  .cat-btn .inner { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end; padding: 12px 14px; height: 100%; position: relative; z-index: 1; }
+  .cat-btn .icon { position: absolute; top: 10px; right: 12px; font-size: 22px; opacity: 0.6; }
+  .cat-btn .label { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; line-height: 1; color: var(--c-text); }
+  .cat-btn .sublabel { font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 3px; opacity: 0.7; }
+  .cat-btn .tint { position: absolute; inset: 0; opacity: 0.08; }
+
+  .counter-row { display: flex; gap: 8px; flex-shrink: 0; }
+  .counter { flex: 1; text-align: center; font-size: 10px; color: var(--c-muted); padding: 6px 0; background: var(--c-surface); border-radius: 8px; border: 1px solid var(--c-border); overflow: hidden; }
+  .counter .cnt-num { display: block; font-size: 16px; font-family: 'Syne', sans-serif; font-weight: 700; margin-bottom: 1px; }
+  .counter .cnt-lbl { font-size: 9px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
+
+  /* EDIT OVERLAY */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 100; display: none; align-items: center; justify-content: center; padding: 24px; }
+  .overlay.show { display: flex; }
+  .edit-card { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius); padding: 24px; width: 100%; max-width: 320px; }
+  .edit-card h2 { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; margin-bottom: 20px; }
+  .edit-row { margin-bottom: 14px; }
+  .edit-row label { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-muted); display: block; margin-bottom: 6px; }
+  .edit-row input { width: 100%; background: var(--c-bg); border: 1px solid var(--c-border); border-radius: 8px; padding: 10px 12px; font-family: 'DM Mono', monospace; font-size: 14px; color: var(--c-text); outline: none; }
+  .edit-row input:focus { border-color: #444; }
+  .edit-actions { display: flex; gap: 8px; margin-top: 20px; }
+  .btn-cancel { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid var(--c-border); background: transparent; color: var(--c-muted); font-family: 'DM Mono', monospace; font-size: 13px; cursor: pointer; }
+  .btn-save { flex: 1; padding: 10px; border-radius: 8px; border: none; background: var(--c-text); color: var(--c-bg); font-family: 'Syne', sans-serif; font-size: 13px; font-weight: 700; cursor: pointer; }
+
+  #cam-error { position: fixed; inset: 0; background: #000; color: var(--c-muted); display: none; align-items: center; justify-content: center; text-align: center; padding: 32px; font-size: 14px; line-height: 1.6; z-index: 20; }
+</style>
+</head>
+<body>
+
+<!-- MAIN SCREEN -->
+<div id="screen-main">
+  <header>
+    <div class="logo">Foto<span>.</span>Sortierer</div>
+    <button class="edit-btn" onclick="openEdit()">✏ Kategorien</button>
+  </header>
+
+  <div class="last-preview">
+    <div class="last-placeholder" id="placeholder">
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M9 5l1.5-2h3L15 5"/></svg>
+      <p>Kategorie wählen → Foto knipsen</p>
+    </div>
+    <img id="last-img" alt="Letztes Foto">
+    <div class="last-badge" id="last-badge"></div>
+    <div class="saved-toast" id="toast"></div>
+  </div>
+
+  <div class="grid" id="btn-grid"></div>
+  <div class="counter-row" id="counter-row"></div>
+</div>
+
+<!-- CAMERA SCREEN -->
+<div id="screen-cam">
+  <div class="flash-overlay" id="flash"></div>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="snap-canvas"></canvas>
+  <div class="cam-header">
+    <div class="cam-title" id="cam-title"></div>
+    <button class="cam-close" onclick="closeCamera()">✕</button>
+  </div>
+  <div class="cam-footer">
+    <div class="cnt-badge"><span id="cam-count">0</span>Fotos</div>
+    <button class="shutter" id="shutter-btn" onclick="takePhoto()"></button>
+    <div class="cnt-badge" style="opacity:0"></div>
+  </div>
+</div>
+
+<!-- EDIT OVERLAY -->
+<div class="overlay" id="overlay">
+  <div class="edit-card">
+    <h2>Kategorien bearbeiten</h2>
+    <div id="edit-fields"></div>
+    <div class="edit-actions">
+      <button class="btn-cancel" onclick="closeEdit()">Abbrechen</button>
+      <button class="btn-save" onclick="saveEdit()">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<div id="cam-error">Kamera-Zugriff verweigert.<br>Bitte in den Chrome-Einstellungen erlauben.</div>
+
+<script>
+  const COLORS = ['#e8c547','#5b9cf6','#f07850','#72c472'];
+  const ICONS  = ['📸','🔧','🗓️','📄'];
+  const STORAGE_KEY = 'fotosortierer_cats';
+
+  let cats = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null') || ['Erinnerung','Technik','Event','Dokument'];
+  let counts = [0,0,0,0];
+  let currentIdx = null;
+  let stream = null;
+  let sessionCount = 0;
+
+  function render() {
+    const grid = document.getElementById('btn-grid');
+    const crow = document.getElementById('counter-row');
+    grid.innerHTML = ''; crow.innerHTML = '';
+    cats.forEach((cat, i) => {
+      const col = COLORS[i];
+      const btn = document.createElement('button');
+      btn.className = 'cat-btn';
+      btn.style.borderColor = col + '33';
+      btn.innerHTML = `<div class="tint" style="background:${col}"></div><div class="icon">${ICONS[i]}</div><div class="inner"><div class="label">${cat}</div><div class="sublabel" style="color:${col}">Kamera öffnen</div></div>`;
+      btn.addEventListener('click', () => openCamera(i));
+      grid.appendChild(btn);
+
+      const cnt = document.createElement('div');
+      cnt.className = 'counter';
+      cnt.id = 'counter-' + i;
+      cnt.innerHTML = `<span class="cnt-num" style="color:${col}">${counts[i]}</span><span class="cnt-lbl">${cat}</span>`;
+      crow.appendChild(cnt);
+    });
+  }
+
+  async function openCamera(idx) {
+    currentIdx = idx;
+    sessionCount = 0;
+    document.getElementById('cam-count').textContent = '0';
+    document.getElementById('cam-title').textContent = ICONS[idx] + ' ' + cats[idx];
+    document.getElementById('cam-title').style.color = COLORS[idx];
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 3840 }, height: { ideal: 2160 } },
+        audio: false
+      });
+      document.getElementById('video').srcObject = stream;
+      document.getElementById('screen-cam').classList.add('active');
+    } catch(e) {
+      document.getElementById('cam-error').style.display = 'flex';
+      setTimeout(() => document.getElementById('cam-error').style.display = 'none', 3000);
+    }
+  }
+
+  function closeCamera() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    document.getElementById('screen-cam').classList.remove('active');
+    document.getElementById('video').srcObject = null;
+  }
+
+  function takePhoto() {
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('snap-canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+
+    // Flash
+    const flash = document.getElementById('flash');
+    flash.classList.add('flash');
+    setTimeout(() => flash.classList.remove('flash'), 150);
+
+    canvas.toBlob(blob => {
+      const url = URL.createObjectURL(blob);
+      const ts = getTimestamp();
+      const filename = `${cats[currentIdx]}_${ts}.jpg`;
+
+      // Download
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      // Update preview + counters
+      counts[currentIdx]++;
+      sessionCount++;
+      document.getElementById('cam-count').textContent = sessionCount;
+      const cnt = document.getElementById('counter-' + currentIdx);
+      if (cnt) cnt.querySelector('.cnt-num').textContent = counts[currentIdx];
+
+      // Update last preview (shown after camera closes)
+      const lastImg = document.getElementById('last-img');
+      lastImg.src = url;
+      lastImg.style.display = 'block';
+      document.getElementById('placeholder').style.opacity = '0';
+      const badge = document.getElementById('last-badge');
+      const col = COLORS[currentIdx];
+      badge.textContent = cats[currentIdx];
+      badge.style.cssText = `display:block;background:${col}33;color:${col};border:1px solid ${col}55;`;
+
+      showToast(filename);
+      URL.revokeObjectURL(url);
+    }, 'image/jpeg', 0.95);
+  }
+
+  function getTimestamp() {
+    const n = new Date();
+    const p = v => String(v).padStart(2,'0');
+    return `${n.getFullYear()}.${p(n.getMonth()+1)}.${p(n.getDate())}_${p(n.getHours())}-${p(n.getMinutes())}-${p(n.getSeconds())}`;
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = '✓ ' + msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2000);
+  }
+
+  function openEdit() {
+    const fields = document.getElementById('edit-fields');
+    fields.innerHTML = '';
+    cats.forEach((cat, i) => {
+      fields.innerHTML += `<div class="edit-row"><label style="color:${COLORS[i]}">${ICONS[i]} Kategorie ${i+1}</label><input type="text" id="edit-${i}" value="${cat}" maxlength="20"></div>`;
+    });
+    document.getElementById('overlay').classList.add('show');
+  }
+
+  function closeEdit() { document.getElementById('overlay').classList.remove('show'); }
+
+  function saveEdit() {
+    cats = cats.map((_, i) => document.getElementById('edit-' + i).value.trim() || cats[i]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(cats));
+    closeEdit(); render();
+  }
+
+  render();
+</script>
+</body>
+</html>
